@@ -13,6 +13,8 @@ And then to perform the conversion (from within the build directory):
 ./converter rntuple.root ttree_caf_1.root ttree_caf_2.root ...
 ```
 
+This recipe works in an el9 or MacOS environment without duneanaobj installed already. It has not been tested in an environment where duneanaobj is already installed. Please report issues if they arise.
+
 Currently, the `nd.sand` branches are turned off. If left on, segfault arise, at least when running on the MicroProdN4p1 CAFs. The origin of the segfaults has not yet been tracked down.
 
 ## Speed comparisons
