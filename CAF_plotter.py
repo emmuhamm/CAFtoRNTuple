@@ -146,7 +146,7 @@ class CAFFile:
         return ak.flatten(interaction_energy, axis=None)
 
     def _calculate_part_length(self):
-        paths = [*self._start_fields, *self._end_fields]
+        paths = [self._particle_pdg, *self._start_fields, *self._end_fields]
         fields = self._read_fields(paths)
 
         start = [fields[path] for path in self._start_fields]
@@ -156,13 +156,16 @@ class CAFFile:
             for start_axis, end_axis in zip(start, end)
         )
         lengths = distance_squared**0.5
+        pdg = abs(fields[self._particle_pdg])
 
-        lengths = distance_squared**0.5
-
-        # Filter by making sure that its not a shower
-        # by making sure that dlp.pdg is not an electron or photon (dont forget to abs it, and look at the pdg id values)
-
-        cleaned = ak.where(np.isfinite(lengths) & (lengths > 0), lengths, 0)
+        # Exclude electron/positron and photon candidates using reconstructed PDG.
+        valid = (
+            np.isfinite(lengths)
+            & (lengths > 0)
+            & (pdg != 11)
+            & (pdg != 22)
+        )
+        cleaned = ak.where(valid, lengths, 0)
 
         # SPINE leaves origRecoObjType as -1; recoobj.type may identify tracks
         # if its enum is verified against the CAF production version.
@@ -194,7 +197,7 @@ PLOT_CONFIGS = {
     "true_neutrino_energy": {
         "file_name": "true_neutrino_energy",
         "x_axis": [0, -1],
-        "percentile": 95,
+        # "percentile": 95,
         "y_axis": [0, -1],
         "x_log": False,
         "y_log": False,
@@ -229,8 +232,8 @@ PLOT_CONFIGS = {
     },
     "e_shower": {
         "file_name": "e_shower",
-        "x_axis": [0, -1],
-        "percentile": 95,
+        "x_axis": [0.0001, 0.02],
+        # "percentile": 95,
         "y_axis": [0, -1],
         "x_log": False,
         "y_log": False,
@@ -241,8 +244,8 @@ PLOT_CONFIGS = {
     },
     "e_shower_interaction": {
         "file_name": "e_shower_interaction",
-        "x_axis": [0, -1],
-        "percentile": 95,
+        "x_axis": [0.0001, 0.02],
+        # "percentile": 95,
         "y_axis": [0, -1],
         "x_log": False,
         "y_log": False,
@@ -277,8 +280,9 @@ PLOT_CONFIGS = {
     
     "part_max_length": {
         "file_name": "part_max_length",
-        "x_axis": [0, -1],
-        "y_axis": [0, -1],
+        "x_axis": [0, 5],
+        "y_axis": [0.01, -1],
+        # "percentile": 80,
         "x_log": False,
         "y_log": False,
         "x_title": "Longest reconstructed track length per interaction (cm)",
@@ -287,10 +291,11 @@ PLOT_CONFIGS = {
         "bins": 50,
     },
 
-    "part_max_length": {
-        "file_name": "part_max_length",
-        "x_axis": [0, -1],
-        "y_axis": [0, -1],
+    "part_max_length_log": {
+        "file_name": "part_max_length_log",
+        "x_axis": [0, 5],
+        "y_axis": [0.01, -1],
+        # "percentile": 80,
         "x_log": False,
         "y_log": True,
         "x_title": "Longest reconstructed track length per interaction (cm)",
