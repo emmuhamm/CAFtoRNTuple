@@ -2,21 +2,29 @@
 
 import argparse
 from pathlib import Path
+import numpy as np
 
 import awkward as ak
 import matplotlib.pyplot as plt
 import uproot
 
 
+
+
+
+
 class CAFFile:
     """Lazy, read-only access to a CAF file with in-memory derived data."""
 
     _PARTICLE_PATH = "rec.common.ixn.dlp.part.dlp"
+    _ND_LAR_DLP_PATH = "rec.nd.lar.dlp"
 
     def __init__(self, file_path, tree_name="caf"):
         self.file_path = Path(file_path)
         self.tree_name = tree_name
         self._particle_energy = f"{self._PARTICLE_PATH}.E"
+        self._particle_pdg = f"{self._PARTICLE_PATH}.pdg"
+        self._nd_track_energy = f"{self._ND_LAR_DLP_PATH}.tracks.E"
         self._track_type = f"{self._PARTICLE_PATH}.origRecoObjType"
         self._start_fields = [
             f"{self._PARTICLE_PATH}.start.{axis}" for axis in "xyz"
@@ -42,6 +50,21 @@ class CAFFile:
             "part_max_length",
             self._calculate_part_max_length,
             aliases=("rec.common.ixn.dlp.part_max_length",),
+        )
+        self.register_derived(
+            "e_shower",
+            self._calculate_e_shower,
+            aliases=("rec.common.ixn.dlp.part.e_shower",),
+        )
+        self.register_derived(
+            "e_shower_interaction",
+            self._calculate_e_shower_interaction,
+            aliases=("e_shower_full", "rec.common.ixn.dlp.e_shower_full"),
+        )
+        self.register_derived(
+            "total_energy",
+            self._calculate_total_energy,
+            aliases=(f"{self._ND_LAR_DLP_PATH}.total_energy",),
         )
 
     def register_derived(self, name, calculation, aliases=()):
@@ -94,13 +117,36 @@ class CAFFile:
         """Return the longest reconstructed track in each DLP interaction."""
         return self.get_data("part_max_length")
 
+    def e_shower(self):
+        """Return energies of electron/positron and photon candidates."""
+        return self.get_data("e_shower")
+
+    def e_shower_interaction(self):
+        """Return the summed shower-candidate energy for each interaction."""
+        return self.get_data("e_shower_interaction")
+
+    def total_energy(self):
+        """Return the summed track energy for each ND-LAr DLP interaction."""
+        return self.get_data("total_energy")
+
+    def _calculate_total_energy(self):
+        return ak.sum(self.get_data(self._nd_track_energy), axis=-1)
+
+    def _calculate_e_shower(self):
+        fields = self._read_fields([self._particle_energy, self._particle_pdg])
+        pdg = abs(fields[self._particle_pdg])
+        return fields[self._particle_energy][(pdg == 11) | (pdg == 22)]
+
+    def _calculate_e_shower_interaction(self):
+        return ak.sum(self.get_data("e_shower"), axis=-1)
+
     def _calculate_part_E_sum(self):
         energies = self._read_fields([self._particle_energy])[self._particle_energy]
         interaction_energy = ak.sum(energies, axis=-1)
         return ak.flatten(interaction_energy, axis=None)
 
     def _calculate_part_length(self):
-        paths = [self._track_type, *self._start_fields, *self._end_fields]
+        paths = [*self._start_fields, *self._end_fields]
         fields = self._read_fields(paths)
 
         start = [fields[path] for path in self._start_fields]
@@ -110,13 +156,27 @@ class CAFFile:
             for start_axis, end_axis in zip(start, end)
         )
         lengths = distance_squared**0.5
-        return ak.where(fields[self._track_type] == 1, lengths, 0)
+
+        lengths = distance_squared**0.5
+
+        # Filter by making sure that its not a shower
+        # by making sure that dlp.pdg is not an electron or photon (dont forget to abs it, and look at the pdg id values)
+
+        cleaned = ak.where(np.isfinite(lengths) & (lengths > 0), lengths, 0)
+
+        # SPINE leaves origRecoObjType as -1; recoobj.type may identify tracks
+        # if its enum is verified against the CAF production version.
+        return cleaned
+
+        
+        # return ak.where(np.isfinite(lengths) & (lengths > 0), lengths, 0)
 
     def _calculate_part_max_length(self):
         lengths = self.get_data("part_length")
         maximum = ak.max(lengths, axis=-1, mask_identity=True)
         maximum = ak.fill_none(maximum, 0)
-        return ak.flatten(maximum, axis=None)
+        ret = ak.flatten(maximum, axis=None)
+        return ret
 
     def get_data(self, path):
         """Get a raw dotted CAF path or one of the in-memory derived values."""
@@ -131,9 +191,69 @@ class CAFFile:
 
 
 PLOT_CONFIGS = {
+    "true_neutrino_energy": {
+        "file_name": "true_neutrino_energy",
+        "x_axis": [0, -1],
+        "percentile": 95,
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "True neutrino energy (GeV)",
+        "y_title": "True interactions",
+        "x_data": "rec.mc.nu.E",
+        "bins": 50,
+    },
+    "track_energy": {
+        "file_name": "track_energy",
+        "x_axis": [0, -1],
+        "percentile": 95,
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "ND-LAr DLP track energy (GeV)",
+        "y_title": "Tracks",
+        "x_data": "rec.nd.lar.dlp.tracks.E",
+        "bins": 50,
+    },
+    "total_energy": {
+        "file_name": "total_energy",
+        "x_axis": [0, -1],
+        "percentile": 95,
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "Total ND-LAr DLP track energy per interaction (GeV)",
+        "y_title": "Interactions",
+        "x_data": "rec.nd.lar.dlp.total_energy",
+        "bins": 50,
+    },
+    "e_shower": {
+        "file_name": "e_shower",
+        "x_axis": [0, -1],
+        "percentile": 95,
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "Reconstructed shower-candidate energy (GeV)",
+        "y_title": "Shower candidates",
+        "x_data": "e_shower",
+        "bins": 50,
+    },
+    "e_shower_interaction": {
+        "file_name": "e_shower_interaction",
+        "x_axis": [0, -1],
+        "percentile": 95,
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "Total reconstructed shower energy per interaction (GeV)",
+        "y_title": "Interactions",
+        "x_data": "e_shower_interaction",
+        "bins": 50,
+    },
     "interaction_energy": {
         "file_name": "interaction_energy",
-        "x_axis": [0, 30],
+        "x_axis": [0, -1],
         "y_axis": [0, -1],
         "x_log": False,
         "y_log": False,
@@ -142,6 +262,31 @@ PLOT_CONFIGS = {
         "x_data": "part_E_sum",
         "bins": 50,
     },
+    
+    "interaction_energy_30": {
+        "file_name": "interaction_energy_3_log",
+        "x_axis": [0, 3],
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": True,
+        "x_title": "Total reconstructed interaction energy (GeV)",
+        "y_title": "Interactions",
+        "x_data": "part_E_sum",
+        "bins": 50,
+    },
+    
+    "part_max_length": {
+        "file_name": "part_max_length",
+        "x_axis": [0, -1],
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "Longest reconstructed track length per interaction (cm)",
+        "y_title": "Interactions",
+        "x_data": "part_max_length",
+        "bins": 50,
+    },
+
     "part_max_length": {
         "file_name": "part_max_length",
         "x_axis": [0, -1],
@@ -216,6 +361,38 @@ class Plotter:
             else:
                 axes.set_ylim(bottom=lower, top=upper)
 
+    @staticmethod
+    def _percentile_range(config, nominal):
+        limits = config.get("x_axis")
+        if limits is None or len(limits) != 2 or limits[1] != -1:
+            raise ValueError("percentile requires an x_axis upper limit of -1")
+        percentile = config["percentile"]
+        if (
+            not isinstance(percentile, (int, float))
+            or isinstance(percentile, bool)
+            or not 0 < percentile <= 100
+        ):
+            raise ValueError("percentile must be a number greater than 0 and at most 100")
+
+        finite = nominal[np.isfinite(nominal)]
+        if len(finite) == 0:
+            raise ValueError("Cannot calculate a percentile without finite nominal data")
+        upper = np.percentile(finite, percentile)
+        lower = limits[0]
+        if lower is None or lower == -1:
+            lower = finite.min()
+        if config.get("x_log", False) and lower <= 0:
+            positive = finite[finite > 0]
+            if len(positive) == 0:
+                raise ValueError("A logarithmic x axis requires positive nominal data")
+            lower = positive.min()
+        if not np.isfinite(lower) or upper <= lower:
+            raise ValueError(
+                "The nominal percentile must exceed the lower x limit; "
+                "choose a higher percentile or a manual range"
+            )
+        return lower, upper
+
     def plot(self, config):
         x_data = config["x_data"]
         values = []
@@ -228,6 +405,12 @@ class Plotter:
         bins = config.get("bins", self.bins)
         if bins <= 0:
             raise ValueError("Plot config bins must be positive")
+
+        if "percentile" in config:
+            histogram_range = self._percentile_range(config, values[0])
+            config = {**config, "x_axis": histogram_range}
+        else:
+            histogram_range = self._linear_histogram_range(config)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         file_name = config["file_name"]
@@ -242,7 +425,7 @@ class Plotter:
         histogram_counts, bin_edges, _ = ax.hist(
             values,
             bins=bins,
-            range=self._linear_histogram_range(config),
+            range=histogram_range,
             histtype="step",
             label=labels,
             color=self.colors,
@@ -270,7 +453,7 @@ class Plotter:
         ratio_ax.axhline(1, color="black", linestyle="--", linewidth=1)
         ratio_ax.set_xlabel(config["x_title"])
         ratio_ax.set_ylabel(config.get("ratio_title", "Variation / Nominal"))
-        ratio_ax.legend()
+        # ratio_ax.legend()
 
         self._set_axis_limits(
             ax, "x", config.get("x_axis"), config.get("x_log", False)
@@ -304,28 +487,7 @@ class Plotter:
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("nominal", help="Nominal CAF ROOT file")
-    parser.add_argument("up", help="Up-variation CAF ROOT file")
-    parser.add_argument("down", help="Down-variation CAF ROOT file")
-    parser.add_argument("-n", "--name", default="caf", help="RNTuple/tree name")
-    parser.add_argument("--bins", type=int, default=50)
-    parser.add_argument("-o", "--output-dir", default="plots")
-    parser.add_argument("--heading", default="", help="Prefix for plot file names")
-    parser.add_argument(
-        "--colors",
-        nargs=3,
-        default=("black", "red", "blue"),
-        metavar=("NOMINAL", "UP", "DOWN"),
-        help="Histogram colors for the three input files",
-    )
-    parser.add_argument(
-        "--plot",
-        choices=tuple(PLOT_CONFIGS),
-        action="append",
-        help="Plot config to run; repeat to select multiple (default: all)",
-    )
-    args = parser.parse_args()
+
     if args.bins <= 0:
         parser.error("--bins must be positive")
 
@@ -334,6 +496,7 @@ def main():
         CAFFile(args.up, args.name),
         CAFFile(args.down, args.name),
     ]
+
     plotter = Plotter(
         caf_files,
         output_dir=args.output_dir,
@@ -345,5 +508,30 @@ def main():
     plotter.plot_all({name: PLOT_CONFIGS[name] for name in selected})
 
 
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("nominal", help="Nominal CAF ROOT file")
+parser.add_argument("up", help="Up-variation CAF ROOT file")
+parser.add_argument("down", help="Down-variation CAF ROOT file")
+parser.add_argument("-n", "--name", default="caf", help="RNTuple/tree name")
+parser.add_argument("--bins", type=int, default=50)
+parser.add_argument("-o", "--output-dir", default="plots")
+parser.add_argument("--heading", default="", help="Prefix for plot file names")
+parser.add_argument(
+    "--colors",
+    nargs=3,
+    default=("black", "red", "blue"),
+    metavar=("NOMINAL", "UP", "DOWN"),
+    help="Histogram colors for the three input files",
+)
+parser.add_argument(
+    "--plot",
+    choices=tuple(PLOT_CONFIGS),
+    action="append",
+    help="Plot config to run; repeat to select multiple (default: all)",
+)
+args = parser.parse_args()
+
 if __name__ == "__main__":
     main()
+else:
+    print("heh")
