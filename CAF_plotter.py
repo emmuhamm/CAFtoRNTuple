@@ -37,9 +37,14 @@ class CAFFile:
         self._derived_calculations = {}
         self._derived_aliases = {}
         self.register_derived(
-            "part_E_sum",
-            self._calculate_part_E_sum,
-            aliases=("rec.common.ixn.dlp.part_E_sum",),
+            "interaction_energy",
+            self._calculate_interaction_energy,
+            aliases=("rec.common.ixn.dlp.E",),
+        )
+        self.register_derived(
+            "interaction_energy_fractional_difference",
+            self._calculate_interaction_energy_fractional_difference,
+            aliases=("rec.common.ixn.dlp.energy_fractional_difference",),
         )
         self.register_derived(
             "part_length",
@@ -105,9 +110,13 @@ class CAFFile:
                 self._branch_cache[path] = value
         return {path: self._branch_cache[path] for path in paths}
 
-    def part_E_sum(self):
-        """Return the summed particle energy for each DLP interaction."""
-        return self.get_data("part_E_sum")
+    def interaction_energy(self):
+        """Return summed particle energy for each reconstructed interaction."""
+        return self.get_data("interaction_energy")
+
+    def interaction_energy_fractional_difference(self):
+        """Return (reconstructed - true) energy divided by true energy."""
+        return self.get_data("interaction_energy_fractional_difference")
 
     def part_length(self):
         """Return per-particle reconstructed lengths, with non-tracks set to 0."""
@@ -140,10 +149,39 @@ class CAFFile:
     def _calculate_e_shower_interaction(self):
         return ak.sum(self.get_data("e_shower"), axis=-1)
 
-    def _calculate_part_E_sum(self):
+    def _calculate_interaction_energy(self):
         energies = self._read_fields([self._particle_energy])[self._particle_energy]
-        interaction_energy = ak.sum(energies, axis=-1)
-        return ak.flatten(interaction_energy, axis=None)
+        return ak.sum(energies, axis=-1)
+
+    def _calculate_interaction_energy_fractional_difference(self):
+        reconstructed_energy = self.get_data("rec.common.ixn.dlp.E")
+        truth_indices = self.get_data("rec.common.ixn.dlp.truth")
+        truth_overlap = self.get_data("rec.common.ixn.dlp.truthOverlap")
+        true_energy = self.get_data("rec.mc.nu.E")
+
+        best_match = ak.argmax(
+            truth_overlap, axis=-1, keepdims=True, mask_identity=True
+        )
+        best_truth_index = ak.firsts(truth_indices[best_match], axis=-1)
+        best_truth_index = ak.mask(
+            best_truth_index, best_truth_index < ak.num(true_energy, axis=1)
+        )
+        matched_true = ak.Array(
+            [
+                spill_energy[spill_truth_indices]
+                for spill_energy, spill_truth_indices in zip(
+                    true_energy, best_truth_index
+                )
+            ]
+        )
+        valid = (
+            np.isfinite(reconstructed_energy)
+            & np.isfinite(matched_true)
+            & (matched_true != 0)
+        )
+        valid = ak.fill_none(valid, False)
+        fractional_difference = (reconstructed_energy - matched_true) / matched_true
+        return fractional_difference[valid]
 
     def _calculate_part_length(self):
         paths = [self._particle_pdg, *self._start_fields, *self._end_fields]
@@ -262,7 +300,18 @@ PLOT_CONFIGS = {
         "y_log": False,
         "x_title": "Total reconstructed interaction energy (GeV)",
         "y_title": "Interactions",
-        "x_data": "part_E_sum",
+        "x_data": "rec.common.ixn.dlp.E",
+        "bins": 50,
+    },
+    "interaction_energy_fractional_difference": {
+        "file_name": "interaction_energy_fractional_difference",
+        "x_axis": [-2,  1],
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "(Reconstructed interaction energy - true interaction energy) / true interaction energy",
+        "y_title": "(Doesnt work!) Interactions",
+        "x_data": "interaction_energy_fractional_difference",
         "bins": 50,
     },
     
@@ -274,7 +323,7 @@ PLOT_CONFIGS = {
         "y_log": True,
         "x_title": "Total reconstructed interaction energy (GeV)",
         "y_title": "Interactions",
-        "x_data": "part_E_sum",
+        "x_data": "rec.common.ixn.dlp.E",
         "bins": 50,
     },
     
