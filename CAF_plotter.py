@@ -4,6 +4,9 @@ import argparse
 from pathlib import Path
 import numpy as np
 
+from scipy.optimize import minimize
+from scipy.stats import crystalball
+
 import awkward as ak
 import matplotlib.pyplot as plt
 import uproot
@@ -283,6 +286,13 @@ PLOT_CONFIGS = {
     "e_shower_interaction": {
         "file_name": "e_shower_interaction",
         "x_axis": [0.0001, 0.02],
+        "fit_range": [0.0025, 0.0100],
+        "fit_bounds": {
+            "beta": [0.4, 4.0],
+            "m": [3.1, 25.0],
+            "mean": [0.0075, 0.0095],
+            "scale": [0.0004, 0.0015],
+        },
         # "percentile": 95,
         "y_axis": [0, -1],
         "x_log": False,
@@ -386,6 +396,95 @@ class Plotter:
         return ak.to_numpy(ak.flatten(data, axis=None))
 
     @staticmethod
+    def _fit_crystal_ball(data, bin_edges, fit_range=None, fit_bounds=None):
+        finite = data[np.isfinite(data)]
+        fit_lower, fit_upper = fit_range or (bin_edges[0], bin_edges[-1])
+        if (
+            not np.isfinite(fit_lower)
+            or not np.isfinite(fit_upper)
+            or fit_lower >= fit_upper
+        ):
+            return None
+
+        in_range = finite[(finite >= fit_lower) & (finite <= fit_upper)]
+        if len(in_range) < 5 or np.ptp(in_range) == 0:
+            return None
+
+        fit_width = fit_upper - fit_lower
+        default_bounds = {
+            "beta": (0.1, 10.0),
+            "m": (2.01, 100.0),
+            "mean": (fit_lower, fit_upper),
+            "scale": (fit_width * 1e-5, fit_width),
+        }
+        bounds = {
+            name: tuple((fit_bounds or {}).get(name, default))
+            for name, default in default_bounds.items()
+        }
+        if any(
+            len(parameter_bounds) != 2
+            or not np.all(np.isfinite(parameter_bounds))
+            or parameter_bounds[0] >= parameter_bounds[1]
+            for parameter_bounds in bounds.values()
+        ):
+            raise ValueError("Crystal Ball fit bounds must be finite increasing pairs")
+
+        initial = [
+            np.mean(bounds["beta"]),
+            np.mean(bounds["m"]),
+            np.clip(np.median(in_range), *bounds["mean"]),
+            np.clip(np.std(in_range), *bounds["scale"]),
+        ]
+
+        def negative_log_likelihood(parameters):
+            beta, shape, fitted_mean, scale = parameters
+            standardized_mean = crystalball.mean(beta, shape)
+            location = fitted_mean - scale * standardized_mean
+            cdf_lower = crystalball.cdf(
+                fit_lower, beta, shape, loc=location, scale=scale
+            )
+            cdf_upper = crystalball.cdf(
+                fit_upper, beta, shape, loc=location, scale=scale
+            )
+            normalization = cdf_upper - cdf_lower
+            if not np.isfinite(normalization) or normalization <= 0:
+                return np.inf
+
+            log_density = crystalball.logpdf(
+                in_range, beta, shape, loc=location, scale=scale
+            )
+            if not np.all(np.isfinite(log_density)):
+                return np.inf
+            return -np.sum(log_density) + len(in_range) * np.log(normalization)
+
+        try:
+            result = minimize(
+                negative_log_likelihood,
+                initial,
+                method="L-BFGS-B",
+                bounds=[bounds[name] for name in ("beta", "m", "mean", "scale")],
+            )
+            if not result.success or not np.all(np.isfinite(result.x)):
+                return None
+            beta, shape, fitted_mean, scale = result.x
+            location = fitted_mean - scale * crystalball.mean(beta, shape)
+        except (FloatingPointError, OverflowError, RuntimeError, ValueError):
+            return None
+
+        fit_x = np.linspace(fit_lower, fit_upper, 400)
+        bin_width = np.mean(np.diff(bin_edges))
+        normalization = crystalball.cdf(
+            fit_upper, beta, shape, loc=location, scale=scale
+        ) - crystalball.cdf(fit_lower, beta, shape, loc=location, scale=scale)
+        fit_counts = (
+            len(in_range)
+            * bin_width
+            * crystalball.pdf(fit_x, beta, shape, loc=location, scale=scale)
+            / normalization
+        )
+        return fit_x, fit_counts, fitted_mean
+
+    @staticmethod
     def _ratios_to_nominal(histogram_counts):
         nominal_counts = histogram_counts[0]
         return [
@@ -484,6 +583,37 @@ class Plotter:
             label=labels,
             color=self.colors,
         )
+        for label, color, data in zip(labels, self.colors, values):
+            if config["file_name"] == "e_shower_interaction":
+                fit = self._fit_crystal_ball(
+                    data,
+                    bin_edges,
+                    fit_range=config.get("fit_range"),
+                    fit_bounds=config.get("fit_bounds"),
+                )
+                if fit is None:
+                    print(f"Crystal Ball fit unavailable for {label} in {file_name}")
+                    continue
+
+                fit_x, fit_counts, fitted_mean = fit
+                ax.plot(
+                    fit_x,
+                    fit_counts,
+                    color=color,
+                    linestyle="--",
+                    label=f"{label} Crystal Ball fit",
+                )
+                if np.isfinite(fitted_mean):
+                    ax.axvline(
+                        fitted_mean,
+                        color=color,
+                        linestyle=":",
+                        label=f"{label} fitted mean = {fitted_mean:.3g}",
+                    )
+                else:
+                    print(
+                        f"Crystal Ball mean undefined for {label} in {file_name}"
+                    )
         if config.get("x_log", False):
             ax.set_xscale("log")
         if config.get("y_log", False):
