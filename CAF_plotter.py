@@ -237,23 +237,40 @@ class CAFFile:
 PLOT_CONFIGS = {
     "true_neutrino_energy": {
         "file_name": "true_neutrino_energy",
-        "x_axis": [0, -1],
+        "title": "True interaction energy",
+        "x_axis": [0, 20],
         # "percentile": 95,
         "y_axis": [0, -1],
         "x_log": False,
         "y_log": False,
-        "x_title": "True neutrino energy (GeV)",
+        "x_title": "True interaction energy (GeV)",
+        "y_title": "True interactions",
+        "x_data": "rec.mc.nu.E",
+        "bins": 50,
+    },
+    "true_neutrino_energy_normalised": {
+        "file_name": "true_neutrino_energy_normalised",
+        "title": "True interaction energy (normalised)",
+        "x_axis": [0.5, 5],
+        "normalize": True,
+        # "percentile": 95,
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "True interaction energy (GeV)",
         "y_title": "True interactions",
         "x_data": "rec.mc.nu.E",
         "bins": 50,
     },
     "track_energy": {
         "file_name": "track_energy",
+        "title": "ND-LAr DLP track energy",
         "x_axis": [0, -1],
-        "percentile": 95,
+        "percentile": 70,
         "y_axis": [0, -1],
         "x_log": False,
         "y_log": False,
+        "normalize": True,
         "x_title": "ND-LAr DLP track energy (GeV)",
         "y_title": "Tracks",
         "x_data": "rec.nd.lar.dlp.tracks.E",
@@ -261,18 +278,35 @@ PLOT_CONFIGS = {
     },
     "total_energy": {
         "file_name": "total_energy",
-        "x_axis": [0, -1],
-        "percentile": 95,
+        "title": "Total ND-LAr track energy per interaction",
+        "x_axis": [0.015, 0.2],
+        "normalize": True,
+        # "percentile": 70,
         "y_axis": [0, -1],
         "x_log": False,
         "y_log": False,
         "x_title": "Total ND-LAr DLP track energy per interaction (GeV)",
         "y_title": "Interactions",
         "x_data": "rec.nd.lar.dlp.total_energy",
-        "bins": 50,
+        "bins": 40,
+    },
+    "total_energy_2": {
+        "file_name": "total_energy_2",
+        "title": "Total ND-LAr track energy per interaction",
+        "x_axis": [0.02, 0.08],
+        "normalize": True,
+        # "percentile": 70,
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "Total ND-LAr DLP track energy per interaction (GeV)",
+        "y_title": "Interactions",
+        "x_data": "rec.nd.lar.dlp.total_energy",
+        "bins": 20,
     },
     "e_shower": {
         "file_name": "e_shower",
+        "title": "Reconstructed shower-candidate energy",
         "x_axis": [0.0001, 0.02],
         # "percentile": 95,
         "y_axis": [0, -1],
@@ -285,6 +319,8 @@ PLOT_CONFIGS = {
     },
     "e_shower_interaction": {
         "file_name": "e_shower_interaction",
+        "title": "Total reconstructed shower energy per interaction",
+        "normalize": False,
         "x_axis": [0.0001, 0.02],
         "fit_range": [0.0025, 0.0100],
         "fit_bounds": {
@@ -304,6 +340,7 @@ PLOT_CONFIGS = {
     },
     "interaction_energy": {
         "file_name": "interaction_energy",
+        "title": "Total reconstructed interaction energy",
         "x_axis": [0, -1],
         "y_axis": [0, -1],
         "x_log": False,
@@ -315,6 +352,7 @@ PLOT_CONFIGS = {
     },
     "interaction_energy_fractional_difference": {
         "file_name": "interaction_energy_fractional_difference",
+        "title": "Interaction energy fractional difference",
         "x_axis": [-2,  1],
         "y_axis": [0, -1],
         "x_log": False,
@@ -327,6 +365,7 @@ PLOT_CONFIGS = {
     
     "interaction_energy_30": {
         "file_name": "interaction_energy_3_log",
+        "title": "Total reconstructed interaction energy (log scale)",
         "x_axis": [0, 3],
         "y_axis": [0, -1],
         "x_log": False,
@@ -339,9 +378,11 @@ PLOT_CONFIGS = {
     
     "part_max_length": {
         "file_name": "part_max_length",
-        "x_axis": [0, 5],
-        "y_axis": [0.01, -1],
+        "title": "Longest reconstructed track per interaction",
+        "x_axis": [0.00001, 10],
+        "y_axis": [0, -1],
         # "percentile": 80,
+        "normalize": True,
         "x_log": False,
         "y_log": False,
         "x_title": "Longest reconstructed track length per interaction (cm)",
@@ -352,6 +393,7 @@ PLOT_CONFIGS = {
 
     "part_max_length_log": {
         "file_name": "part_max_length_log",
+        "title": "Longest reconstructed track per interaction (log scale)",
         "x_axis": [0, 5],
         "y_axis": [0.01, -1],
         # "percentile": 80,
@@ -565,6 +607,24 @@ class Plotter:
         else:
             histogram_range = self._linear_histogram_range(config)
 
+        normalize = config.get("normalize", False)
+        if not isinstance(normalize, bool):
+            raise ValueError("normalize must be True or False")
+        fit_normalizations = [1.0] * len(values)
+        if normalize:
+            bins = np.histogram_bin_edges(
+                np.concatenate(values), bins=bins, range=histogram_range
+            )
+            for sample_index, (label, data) in enumerate(zip(labels, values)):
+                counts, _ = np.histogram(data, bins=bins)
+                if counts.sum() == 0:
+                    raise ValueError(
+                        f"Cannot normalise {label}: no entries in histogram range"
+                    )
+                fit_normalizations[sample_index] = (
+                    counts.sum() * np.mean(np.diff(bins))
+                )
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
         file_name = config["file_name"]
         output = self.output_dir / f"{self.heading}{file_name}.png"
@@ -582,8 +642,11 @@ class Plotter:
             histtype="step",
             label=labels,
             color=self.colors,
+            density=normalize,
         )
-        for label, color, data in zip(labels, self.colors, values):
+        for label, color, data, fit_normalization in zip(
+            labels, self.colors, values, fit_normalizations
+        ):
             if config["file_name"] == "e_shower_interaction":
                 fit = self._fit_crystal_ball(
                     data,
@@ -598,7 +661,7 @@ class Plotter:
                 fit_x, fit_counts, fitted_mean = fit
                 ax.plot(
                     fit_x,
-                    fit_counts,
+                    fit_counts / fit_normalization,
                     color=color,
                     linestyle="--",
                     label=f"{label} Crystal Ball fit",
@@ -618,9 +681,15 @@ class Plotter:
             ax.set_xscale("log")
         if config.get("y_log", False):
             ax.set_yscale("log")
-        ax.set_ylabel(config["y_title"])
+        ax.set_ylabel("Probability density" if normalize else config["y_title"])
         ax.set_title(config.get("title", file_name.replace("_", " ").title()))
-        ax.legend()
+        ax.legend(
+            fontsize=8,
+            labelspacing=0.25,
+            borderpad=0.4,
+            handlelength=1.8,
+            handletextpad=0.5,
+        )
 
         bin_centers = [
             (left + right) / 2 for left, right in zip(bin_edges[:-1], bin_edges[1:])
