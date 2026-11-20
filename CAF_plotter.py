@@ -307,8 +307,9 @@ PLOT_CONFIGS = {
     "e_shower": {
         "file_name": "e_shower",
         "title": "Reconstructed shower-candidate energy",
-        "x_axis": [0.0001, 0.02],
+        "x_axis": [0.001, 0.02],
         # "percentile": 95,
+        "normalize": True,
         "y_axis": [0, -1],
         "x_log": False,
         "y_log": False,
@@ -317,11 +318,32 @@ PLOT_CONFIGS = {
         "x_data": "e_shower",
         "bins": 50,
     },
-    "e_shower_interaction": {
+    "e_shower_interaction_cb": {
+        "file_name": "e_shower_interaction_cb",
+        "title": "Total reconstructed shower energy per interaction",
+        "normalize": True,
+        "x_axis": [0.002, 0.015],
+        "fit_range": [0.0025, 0.0100],
+        "fit_bounds": { 
+            "beta": [0.4, 4.0],
+            "m": [3.1, 25.0],
+            "mean": [0.0075, 0.0095],
+            "scale": [0.0004, 0.0015],
+        },
+        # "percentile": 95,
+        "y_axis": [0, -1],
+        "x_log": False,
+        "y_log": False,
+        "x_title": "Total reconstructed shower energy per interaction (GeV)",
+        "y_title": "Interactions",
+        "x_data": "e_shower_interaction",
+        "bins": 50,
+    },
+        "e_shower_interaction": {
         "file_name": "e_shower_interaction",
         "title": "Total reconstructed shower energy per interaction",
-        "normalize": False,
-        "x_axis": [0.0001, 0.02],
+        "normalize": True,
+        "x_axis": [0.001, 0.02],
         "fit_range": [0.0025, 0.0100],
         "fit_bounds": {
             "beta": [0.4, 4.0],
@@ -647,7 +669,7 @@ class Plotter:
         for label, color, data, fit_normalization in zip(
             labels, self.colors, values, fit_normalizations
         ):
-            if config["file_name"] == "e_shower_interaction":
+            if config["file_name"] == "e_shower_interaction_cb":
                 fit = self._fit_crystal_ball(
                     data,
                     bin_edges,
@@ -664,7 +686,7 @@ class Plotter:
                     fit_counts / fit_normalization,
                     color=color,
                     linestyle="--",
-                    label=f"{label} Crystal Ball fit",
+                    # label=f"{label} Crystal Ball fit",
                 )
                 if np.isfinite(fitted_mean):
                     ax.axvline(
@@ -738,9 +760,76 @@ class Plotter:
     def plot_all(self, configs):
         return [self.plot(config) for config in configs.values()]
 
+    def plot_histogram_arrays(
+        self, histogram_values, bin_edges, output_name, x_title, title
+    ):
+        output = self.output_dir / output_name
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        fig, axes = plt.subplots()
+        for label, color, values in zip(
+            self.caf_files, self.colors, histogram_values
+        ):
+            axes.stairs(values, bin_edges, label=label, color=color)
+        axes.set_xlabel(x_title)
+        axes.set_ylabel("Probability density")
+        axes.set_title(title)
+        axes.legend()
+        fig.tight_layout()
+        fig.savefig(output)
+        plt.close(fig)
+        return output
+
+    def plot_weight_arrays(
+        self, weight_values, bin_edges, output_name, x_title, title
+    ):
+        output = self.output_dir / output_name
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
+        fig, axes = plt.subplots()
+        for label, color, values in zip(
+            self.caf_files, self.colors, weight_values
+        ):
+            axes.step(
+                bin_centres,
+                values,
+                where="mid",
+                label=f"{label} / Nominal",
+                color=color,
+            )
+        axes.axhline(1, color="black", linestyle="--", linewidth=1)
+        axes.set_xlabel(x_title)
+        axes.set_ylabel("Weight")
+        axes.set_title(title)
+        axes.legend()
+        fig.tight_layout()
+        fig.savefig(output)
+        plt.close(fig)
+        return output
+
 
 def main():
-
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("nominal", help="Nominal CAF ROOT file")
+    parser.add_argument("up", help="Up-variation CAF ROOT file")
+    parser.add_argument("down", help="Down-variation CAF ROOT file")
+    parser.add_argument("-n", "--name", default="caf", help="RNTuple/tree name")
+    parser.add_argument("--bins", type=int, default=50)
+    parser.add_argument("-o", "--output-dir", default="plots")
+    parser.add_argument("--heading", default="", help="Prefix for plot file names")
+    parser.add_argument(
+        "--colors",
+        nargs=3,
+        default=("black", "red", "blue"),
+        metavar=("NOMINAL", "UP", "DOWN"),
+        help="Histogram colors for the three input files",
+    )
+    parser.add_argument(
+        "--plot",
+        choices=tuple(PLOT_CONFIGS),
+        action="append",
+        help="Plot config to run; repeat to select multiple (default: all)",
+    )
+    args = parser.parse_args()
     if args.bins <= 0:
         parser.error("--bins must be positive")
 
@@ -761,30 +850,5 @@ def main():
     plotter.plot_all({name: PLOT_CONFIGS[name] for name in selected})
 
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("nominal", help="Nominal CAF ROOT file")
-parser.add_argument("up", help="Up-variation CAF ROOT file")
-parser.add_argument("down", help="Down-variation CAF ROOT file")
-parser.add_argument("-n", "--name", default="caf", help="RNTuple/tree name")
-parser.add_argument("--bins", type=int, default=50)
-parser.add_argument("-o", "--output-dir", default="plots")
-parser.add_argument("--heading", default="", help="Prefix for plot file names")
-parser.add_argument(
-    "--colors",
-    nargs=3,
-    default=("black", "red", "blue"),
-    metavar=("NOMINAL", "UP", "DOWN"),
-    help="Histogram colors for the three input files",
-)
-parser.add_argument(
-    "--plot",
-    choices=tuple(PLOT_CONFIGS),
-    action="append",
-    help="Plot config to run; repeat to select multiple (default: all)",
-)
-args = parser.parse_args()
-
 if __name__ == "__main__":
     main()
-else:
-    print("heh")

@@ -3,8 +3,8 @@ args_name = "caf"
 args_nominal = "rntuple.root" 
 args_up = "rntuple_up.root"
 
-x = CAFFile(args.nominal, args.name)
-y = CAFFile(args.up, args.name)
+x = CAFFile(args_nominal, args_name)
+y = CAFFile(args_up, args_name)
 
 
 "rec.mc.nnu"
