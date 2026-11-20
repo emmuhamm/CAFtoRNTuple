@@ -105,7 +105,7 @@ def main():
         dest="value_range",
         type=float,
         nargs=2,
-        default=(0.0, 3.0),
+        default=(0.0, 20.0),
         metavar=("MIN", "MAX"),
     )
     parser.add_argument("--output-root", default="caf_histograms.root")
