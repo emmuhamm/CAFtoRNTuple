@@ -1,0 +1,90 @@
+
+
+neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_caf_ndlarfid_sanddrift_spineonly
+neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_cafflat_ndlarfid_sanddrift_spineonly
+
+neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_caf_ndlarfid_sanddrift_spineonly_abup
+neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_cafflat_ndlarfid_sanddrift_spineonly_abup
+
+neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_caf_ndlarfid_sanddrift_spineonly_abdown
+neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_cafflat_ndlarfid_sanddrift_spineonly_abdown
+
+
+
+## How to get the set of files
+
+. /cvmfs/dune.opensciencegrid.org/spack/setup-env.sh
+spack env activate dune-prototype
+htgettoken -i dune -a htvaultprod.fnal.gov
+
+
+rucio replica list file --pfns neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_caf_ndlarfid_sanddrift_spineonly > files_nominal.txt
+rucio replica list file --pfns  neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_caf_ndlarfid_sanddrift_spineonly_abup > files_up.txt
+rucio replica list file --pfns  neardet-lar-tms-sand:MiniProdN5p1_NDComplex_FHC_caf_ndlarfid_sanddrift_spineonly_abdown > files_down.txt
+
+## How to run the converter 
+
+source /cvmfs/sft.cern.ch/lcg/views/LCG_108/x86_64-el9-gcc15-opt/setup.sh
+
+### building
+
+mkdir build && cd build
+cmake .. && make install
+
+### conversion
+
+xargs -a files_nominal.txt ./converter rntuple.root; xargs -a files_up.txt ./converter rntuple_up.root; xargs -a files_down.txt ./converter rntuple_down.root
+
+## Running the plotter using lcg 108
+
+python plot_interaction_energy.py rntuple.root rntuple_up.root rntuple_down.root
+
+python CAF_maker.py rntuple.root rntuple_up.root rntuple_down.root --range 0.0025 0.02 --bins 20 --x-data 'e_shower_interaction'
+
+python CAF_plotter.py rntuple.root rntuple_up.root rntuple_down.root --output-dir plots --plot e_shower_interaction_cb
+
+
+---
+
+
+
+
+| head -n 2
+
+default
+
+root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr/dune/persistent/staging/neardet-lar-tms-sand/cf/fa/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.0000255.CAF.root
+root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr/dune/persistent/staging/neardet-lar-tms-sand/2b/5e/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.0000256.CAF.root
+
+up
+root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr/dune/persistent/staging/neardet-lar-tms-sand/e1/20/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abup.0000255.CAF.root
+root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr/dune/persistent/staging/neardet-lar-tms-sand/9a/1c/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abup.0000256.CAF.root
+
+down
+root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr/dune/persistent/staging/neardet-lar-tms-sand/f2/18/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abdown.0000255.CAF.root
+root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr/dune/persistent/staging/neardet-lar-tms-sand/d6/8b/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abdown.0000256.CAF.root
+
+
+
+/pnfs/dune/persistent/staging/neardet-lar-tms-sand/ cf/fa/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.0000255.CAF.root
+
+
+./converter rntuple_nominal.root /pnfs/dune/persistent/staging/neardet-lar-tms-sand/cf/fa/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.0000255.CAF.root /pnfs/dune/persistent/staging/neardet-lar-tms-sand/2b/5e/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.0000256.CAF.root
+
+./converter rntuple_up.root /pnfs/dune/persistent/staging/neardet-lar-tms-sand/e1/20/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abup.0000255.CAF.root /pnfs/dune/persistent/staging/neardet-lar-tms-sand/9a/1c/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abup.0000256.CAF.root
+
+./converter rntuple_down.root /pnfs/dune/persistent/staging/neardet-lar-tms-sand/f2/18/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abdown.0000255.CAF.root /pnfs/dune/persistent/staging/neardet-lar-tms-sand/d6/8b/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abdown.0000256.CAF.root
+
+
+./converter test.root root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr/dune/persistent/staging/neardet-lar-tms-sand/f2/18/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abdown.0000255.CAF.root root://fndcadoor.fnal.gov:1094/pnfs/fnal.gov/usr/dune/persistent/staging/neardet-lar-tms-sand/d6/8b/MiniProdN5p1_NDComplex_FHC.caf.ndlarfid.sanddrift.spineonly.abdown.0000256.CAF.root
+
+NEXT GOAL: GET MORE STATS
+
+
+
+
+
+python plot_interaction_energy.py rntuple.root rntuple_up.root rntuple_down.root
+
+
+nd.lar.dlp.tracks.charge

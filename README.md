@@ -115,3 +115,14 @@ Additional in-memory quantities can be added with
 `CAFFile.register_derived(name, calculation, aliases=())`. The calculation is a
 zero-argument callable, run on the first request and cached for that `CAFFile`
 instance; aliases let it also be requested using a dotted CAF-style path.
+
+`CAF_maker.py` creates area-normalised histograms and variation weights. Use
+`--bin-edges` to provide explicit, strictly increasing bin edges; when set, it
+takes precedence over `--bins` and `--range`:
+
+```bash
+python CAF_maker.py nominal.root up.root down.root \
+  --bin-edges 0 0.5 1 1.25 1.5 1.75 2 2.25 2.5 2.75 3 3.25 3.5 3.75 4 5 6 10
+```
+
+Without `--bin-edges`, `--bins` and `--range` continue to define uniform bins.

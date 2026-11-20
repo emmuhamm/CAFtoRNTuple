@@ -11,15 +11,30 @@ from CAF_plotter import CAFFile, Plotter
 SAMPLES = ("nominal", "up", "down")
 
 
-def make_histograms(caf_files, x_data, bins, value_range):
-    """Return area-normalised histograms, bin edges, and variation weights."""
-    lower, upper = value_range
-    if not np.isfinite(lower) or not np.isfinite(upper) or lower >= upper:
-        raise ValueError("The histogram range must be finite and increasing")
-    if bins <= 0:
-        raise ValueError("bins must be positive")
+def _get_bin_edges(bins, value_range, bin_edges=None):
+    if bin_edges is None:
+        lower, upper = value_range
+        if not np.isfinite(lower) or not np.isfinite(upper) or lower >= upper:
+            raise ValueError("The histogram range must be finite and increasing")
+        if bins <= 0:
+            raise ValueError("bins must be positive")
+        bin_edges = np.linspace(lower, upper, bins + 1)
+    else:
+        bin_edges = np.asarray(bin_edges, dtype=float)
+        if (
+            bin_edges.ndim != 1
+            or len(bin_edges) < 2
+            or not np.all(np.isfinite(bin_edges))
+            or np.any(np.diff(bin_edges) <= 0)
+        ):
+            raise ValueError("bin_edges must be finite and strictly increasing")
+    return bin_edges
 
-    bin_edges = np.linspace(lower, upper, bins + 1)
+
+def make_histograms(caf_files, x_data, bins, value_range, bin_edges=None):
+    """Return area-normalised histograms, bin edges, and variation weights."""
+    bin_edges = _get_bin_edges(bins, value_range, bin_edges)
+
     histograms = {}
     for sample, caf_file in zip(SAMPLES, caf_files):
         values = Plotter._histogram_values(caf_file.get_data(x_data))
@@ -79,6 +94,13 @@ def main():
     parser.add_argument("--x-data", default="interaction_energy")
     parser.add_argument("--bins", type=int, default=50)
     parser.add_argument(
+        "--bin-edges",
+        type=float,
+        nargs="+",
+        metavar="EDGE",
+        help="Explicit histogram bin edges; takes precedence over --bins and --range",
+    )
+    parser.add_argument(
         "--range",
         dest="value_range",
         type=float,
@@ -89,17 +111,28 @@ def main():
     parser.add_argument("--output-root", default="caf_histograms.root")
     parser.add_argument("--output-dir", default="plots")
     args = parser.parse_args()
-    if args.bins <= 0:
+    if args.bin_edges is None and args.bins <= 0:
         parser.error("--bins must be positive")
+
+    try:
+        bin_edges = _get_bin_edges(
+            args.bins, args.value_range, args.bin_edges
+        )
+    except ValueError as error:
+        parser.error(str(error))
 
     caf_files = [
         CAFFile(args.nominal, args.name),
         CAFFile(args.up, args.name),
         CAFFile(args.down, args.name),
     ]
-    plotter = Plotter(caf_files, output_dir=args.output_dir, bins=args.bins)
+    plotter = Plotter(
+        caf_files,
+        output_dir=args.output_dir,
+        bins=len(bin_edges) - 1 if args.bin_edges is not None else args.bins,
+    )
     histograms, bin_edges, weights = make_histograms(
-        caf_files, args.x_data, args.bins, args.value_range
+        caf_files, args.x_data, args.bins, args.value_range, bin_edges
     )
     save_root_file(histograms, bin_edges, weights, args.output_root)
     plot_paths = save_plots(

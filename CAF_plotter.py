@@ -153,7 +153,10 @@ class CAFFile:
         return ak.sum(self.get_data("e_shower"), axis=-1)
 
     def _calculate_interaction_energy(self):
-        energies = self._read_fields([self._particle_energy])[self._particle_energy]
+        thing = self._read_fields([self._particle_energy])
+        energies = thing[self._particle_energy]
+        print(thing)
+        print(energies)
         return ak.sum(energies, axis=-1)
 
     def _calculate_interaction_energy_fractional_difference(self):
